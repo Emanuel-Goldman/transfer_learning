@@ -25,18 +25,38 @@ All networks share **identical input and output dimensions** to support later tr
 ## Requirements
 
 - Python 3.7+
-- gymnasium
-- numpy
-- torch (PyTorch)
-- matplotlib
+- See `requirements.txt` for package dependencies
 
 ## Installation
 
-Install the required dependencies:
+### 1. Create a Virtual Environment
 
 ```bash
-pip install gymnasium numpy torch matplotlib
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+# On Linux/Mac:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate
 ```
+
+### 2. Install Dependencies
+
+```bash
+# Install all required packages
+pip install -r requirements.txt
+```
+
+### 3. Verify Installation
+
+```bash
+# Check that packages are installed
+python -c "import gymnasium, numpy, torch, matplotlib; print('All packages installed successfully!')"
+```
+
+**Note**: Remember to activate the virtual environment (`source venv/bin/activate`) each time you work on this project. To deactivate, simply run `deactivate`.
 
 ## Usage
 
@@ -159,12 +179,16 @@ For discrete action spaces:
 ```
 transfer_learning/
 ├── section1_actor_critic.py  # Main implementation file
+├── requirements.txt           # Python dependencies
 ├── README.md                  # This file
+├── venv/                      # Virtual environment (created during setup)
 └── results/                   # Output directory (created automatically)
     ├── CartPole-v1_seed0_summary.json
     ├── CartPole-v1_seed0_training_curve.png
     └── ...
 ```
+
+**Note**: The `venv/` directory should be added to `.gitignore` if using version control.
 
 ## License
 
