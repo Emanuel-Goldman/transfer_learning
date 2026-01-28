@@ -35,21 +35,21 @@ ENV_CONFIGS = {
         'action_dim': 2,  # discrete
         'action_type': 'discrete',
         'target_return': 475,
-        'max_episodes': 10000,
+        'max_episodes': 500,
     },
     'Acrobot-v1': {
         'obs_dim': 6,
         'action_dim': 3,  # discrete
         'action_type': 'discrete',
         'target_return': -100,
-        'max_episodes': 10000,
+        'max_episodes': 500,
     },
     'MountainCarContinuous-v0': {
         'obs_dim': 2,
         'action_dim': 1,  # continuous
         'action_type': 'continuous',
         'target_return': 90,
-        'max_episodes': 10000,
+        'max_episodes': 500,
     }
 }
 

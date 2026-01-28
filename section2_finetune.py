@@ -206,7 +206,7 @@ def finetune_on_target(model: ActorCritic, target_env_name: str, training_args: 
     
     start_time = time.perf_counter()
     
-    max_episodes = training_args.get('max_episodes', 10000)
+    max_episodes = training_args.get('max_episodes', 500)
     max_steps = training_args.get('max_steps', 500)
     update_mode = training_args.get('update_mode', 'episode')
     eval_interval = training_args.get('eval_interval', 100)
