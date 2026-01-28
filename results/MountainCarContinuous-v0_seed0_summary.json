@@ -1,0 +1,21 @@
+{
+  "env_name": "MountainCarContinuous-v0",
+  "seed": 0,
+  "hyperparameters": {
+    "lr_policy": 0.001957699823689008,
+    "lr_value": 0.005729747681869129,
+    "gamma": 0.9168770457543605,
+    "entropy_coef": 0.04991493043969712,
+    "normalize_advantages": true,
+    "hidden_sizes": [
+      64,
+      128
+    ],
+    "max_episodes": 1000,
+    "update_mode": "episode"
+  },
+  "runtime_seconds": 719.7057981491089,
+  "episodes_to_converge": 1000,
+  "final_avg_return": -1.126003438093587,
+  "converged": false
+}
