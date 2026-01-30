@@ -23,7 +23,7 @@ ENV_NAME = 'CartPole-v1'
 
 # Hidden sizes choices - must match between training and printing
 HIDDEN_SIZE_CHOICES = [
-    # [64, 64],
+    [64, 64],
     # [128, 128],
     # [256, 256],
     [64, 128],
@@ -34,10 +34,10 @@ HIDDEN_SIZE_CHOICES = [
 def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int = 50):
     """Train agent with Optuna pruning support."""
     # Sample hyperparameters
-    lr_policy = trial.suggest_float("lr_policy", 1e-5, 1e-2, log=True)
-    lr_value = trial.suggest_float("lr_value", 1e-5, 1e-2, log=True)
-    gamma = trial.suggest_float("gamma", 0.9, 0.99)
-    entropy_coef = trial.suggest_float("entropy_coef", 0.0, 0.1)
+    lr_policy = trial.suggest_float("lr_policy", 0.001, 0.003, log=True)
+    lr_value = trial.suggest_float("lr_value", 0.005, 0.009, log=True)
+    gamma = trial.suggest_float("gamma", 0.98, 0.999)
+    entropy_coef = trial.suggest_float("entropy_coef", 0.01, 0.04)
     normalize_advantages = trial.suggest_categorical("normalize_advantages", [True])
     
     # Hidden sizes choices
@@ -50,8 +50,8 @@ def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int =
     # Learning rate decay
     use_lr_decay = trial.suggest_categorical("use_lr_decay", [True])
     if use_lr_decay:
-        lr_decay = trial.suggest_float("lr_decay", 0.98, 0.999, log=False)
-        lr_decay_steps = trial.suggest_int("lr_decay_steps", 50, 200, step=50)
+        lr_decay = trial.suggest_float("lr_decay", 0.96, 0.98, log=False)
+        lr_decay_steps = trial.suggest_int("lr_decay_steps", 100, 200, step=5)
     else:
         lr_decay = None
         lr_decay_steps = 100
@@ -107,9 +107,9 @@ def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int =
     
     step_count = 0
     episode_returns = []
-    best_eval_return = float('-inf')
+    episode_returns_deque = deque(maxlen=100)  # For moving average of last 100 episodes
+    best_ma100_return = float('-inf')
     max_steps = 500
-    eval_episodes = 10
     
     for episode in range(1, max_episodes + 1):
         obs, info = env.reset()
@@ -184,38 +184,45 @@ def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int =
             agent.step_lr(episode)
         
         episode_returns.append(episode_return)
+        episode_returns_deque.append(episode_return)  # Add to deque for moving average
         
-        # Evaluate and report to Optuna at intervals
+        # Calculate mean of last 100 episodes and report to Optuna at intervals
         if episode % eval_interval == 0 or episode == max_episodes:
-            eval_results = evaluate_policy(
-                agent.policy,
-                env,
-                action_type,
-                n_episodes=eval_episodes,
-                deterministic=True,
-                device="cpu",
-                render=False
-            )
-            mean_eval_return = eval_results["mean_return"]
+            # Calculate mean of last 100 episodes (or all if less than 100)
+            if len(episode_returns_deque) == 100:
+                ma100_return = sum(episode_returns_deque) / 100
+            elif len(episode_returns) >= 100:
+                ma100_return = sum(episode_returns[-100:]) / 100
+            else:
+                ma100_return = sum(episode_returns) / len(episode_returns) if episode_returns else 0.0
             
-            # Update best eval return
-            if mean_eval_return > best_eval_return:
-                best_eval_return = mean_eval_return
+            # Update best mean of last 100 episodes
+            if ma100_return > best_ma100_return:
+                best_ma100_return = ma100_return
             
-            # Report to Optuna
-            trial.report(mean_eval_return, step=episode)
+            # Report to Optuna (using mean of last 100 episodes)
+            trial.report(ma100_return, step=episode)
             
             # Check for pruning
             if trial.should_prune():
-                print(f"  PRUNED at episode {episode}, eval_return: {mean_eval_return:.2f}")
+                print(f"  PRUNED at episode {episode}, MA100 return: {ma100_return:.2f}")
                 env.close()
                 raise TrialPruned()
             
             # Print progress
-            print(f"  Episode {episode:4d} | Eval Return: {mean_eval_return:7.2f} | Best so far: {best_eval_return:7.2f}")
+            print(f"  Episode {episode:4d} | MA100 Return: {ma100_return:7.2f} | Best so far: {best_ma100_return:7.2f}")
     
     env.close()
-    return best_eval_return
+    
+    # Return final mean of last 100 episodes (or best observed)
+    if len(episode_returns_deque) == 100:
+        final_ma100_return = sum(episode_returns_deque) / 100
+    elif len(episode_returns) >= 100:
+        final_ma100_return = sum(episode_returns[-100:]) / 100
+    else:
+        final_ma100_return = sum(episode_returns) / len(episode_returns) if episode_returns else 0.0
+    
+    return final_ma100_return
 
 
 def run_optuna_search(n_trials: int = 30, seed: int = 0, max_episodes: int = 500, eval_interval: int = 50):
@@ -246,7 +253,7 @@ def run_optuna_search(n_trials: int = 30, seed: int = 0, max_episodes: int = 500
     print("Optuna Search Complete")
     print("=" * 60)
     print(f"Best trial: {study.best_trial.number}")
-    print(f"Best value (best eval return): {study.best_value:.2f}")
+    print(f"Best value (mean of last 100 episodes): {study.best_value:.2f}")
     print("\nBest hyperparameters:")
     for key, value in study.best_params.items():
         if key == "hidden_sizes_idx":

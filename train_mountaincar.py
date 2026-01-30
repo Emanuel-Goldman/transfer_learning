@@ -24,11 +24,11 @@ ENV_NAME = 'MountainCarContinuous-v0'
 def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int = 50):
     """Train agent with Optuna pruning support."""
     # Sample hyperparameters
-    lr_policy = trial.suggest_float("lr_policy", 1e-5, 1e-2, log=True)
-    lr_value = trial.suggest_float("lr_value", 1e-5, 1e-2, log=True)
-    gamma = trial.suggest_float("gamma", 0.9, 0.99)
-    entropy_coef = trial.suggest_float("entropy_coef", 0.0, 0.1)
-    normalize_advantages = trial.suggest_categorical("normalize_advantages", [True, False])
+    lr_policy = trial.suggest_float("lr_policy", 5e-5, 5e-4, log=True)
+    lr_value = trial.suggest_float("lr_value", 1e-3, 1e-2, log=True)
+    gamma = trial.suggest_float("gamma", 0.998, 0.9999)
+    entropy_coef = trial.suggest_float("entropy_coef", 0.1, 2.0)
+    normalize_advantages = trial.suggest_categorical("normalize_advantages", [True])
     
     # Hidden sizes choices
     hidden_size_choices = [
@@ -42,13 +42,13 @@ def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int =
     hidden_sizes = hidden_size_choices[hidden_sizes_idx]
     
     # Update mode
-    update_mode = trial.suggest_categorical("update_mode", ["episode", "step"])
+    update_mode = trial.suggest_categorical("update_mode", ["episode"])
     
     # Learning rate decay
-    use_lr_decay = trial.suggest_categorical("use_lr_decay", [True, False])
+    use_lr_decay = trial.suggest_categorical("use_lr_decay", [True])
     if use_lr_decay:
-        lr_decay = trial.suggest_float("lr_decay", 0.98, 0.999, log=False)
-        lr_decay_steps = trial.suggest_int("lr_decay_steps", 50, 200, step=50)
+        lr_decay = trial.suggest_float("lr_decay", 0.99, 1.0, log=False)
+        lr_decay_steps = trial.suggest_int("lr_decay_steps", 100, 500, step=100)
     else:
         lr_decay = None
         lr_decay_steps = 100
@@ -99,18 +99,26 @@ def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int =
     
     step_count = 0
     episode_returns = []
-    best_eval_return = float('-inf')
-    max_steps = 500
-    eval_episodes = 10
+    episode_returns_deque = deque(maxlen=100)  # For moving average of last 100 episodes
+    episode_max_positions = []  # Track max position reached per episode
+    episode_max_positions_deque = deque(maxlen=100)  # For success rate calculation
+    best_score = float('-inf')
+    max_steps = 999  # Environment default to give car enough time
+    goal_position = 0.45  # Goal position threshold
     
     for episode in range(1, max_episodes + 1):
         obs, info = env.reset()
         episode_return = 0.0
         episode_length = 0
+        episode_max_pos = float('-inf')  # Track max position in this episode
         done = False
         final_done_bootstrap = False
         
         while not done and episode_length < max_steps:
+            # Track maximum position (first element of observation is position)
+            current_pos = obs[0] if len(obs) > 0 else float('-inf')
+            episode_max_pos = max(episode_max_pos, current_pos)
+            
             action_mask = get_action_mask()
             action, value = agent.select_action(obs, action_mask, deterministic=False)
             
@@ -139,6 +147,17 @@ def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int =
             done_env = terminated or truncated
             done_bootstrap = terminated
             final_done_bootstrap = done_bootstrap
+            
+            # Track position after step as well
+            if len(next_obs) > 0:
+                episode_max_pos = max(episode_max_pos, next_obs[0])
+            
+            # Add success reward bonus if goal reached
+            if done_env:
+                current_pos = next_obs[0] if len(next_obs) > 0 else float('-inf')
+                is_success = info.get('is_success', False) if isinstance(info, dict) else False
+                if is_success or current_pos >= goal_position:
+                    reward += 500.0  # Large success bonus
             
             if not done_env:
                 _, next_value = agent.select_action(next_obs, action_mask, deterministic=False)
@@ -176,38 +195,64 @@ def train_with_pruning(trial, seed: int, max_episodes: int, eval_interval: int =
             agent.step_lr(episode)
         
         episode_returns.append(episode_return)
+        episode_returns_deque.append(episode_return)  # Add to deque for moving average
+        episode_max_positions.append(episode_max_pos)
+        episode_max_positions_deque.append(episode_max_pos)  # Add to deque for success rate
         
-        # Evaluate and report to Optuna at intervals
+        # Calculate mean of last 100 episodes and report to Optuna at intervals
         if episode % eval_interval == 0 or episode == max_episodes:
-            eval_results = evaluate_policy(
-                agent.policy,
-                env,
-                action_type,
-                n_episodes=eval_episodes,
-                deterministic=True,
-                device="cpu",
-                render=False
-            )
-            mean_eval_return = eval_results["mean_return"]
+            # Calculate mean of last 100 episodes (or all if less than 100)
+            if len(episode_returns_deque) == 100:
+                ma100_return = sum(episode_returns_deque) / 100
+            elif len(episode_returns) >= 100:
+                ma100_return = sum(episode_returns[-100:]) / 100
+            else:
+                ma100_return = sum(episode_returns) / len(episode_returns) if episode_returns else 0.0
             
-            # Update best eval return
-            if mean_eval_return > best_eval_return:
-                best_eval_return = mean_eval_return
+            # Calculate success rate (fraction of last 100 episodes that reached goal)
+            if len(episode_max_positions_deque) == 100:
+                success_count = sum(1 for pos in episode_max_positions_deque if pos >= goal_position)
+                success_rate = success_count / 100.0
+            elif len(episode_max_positions) >= 100:
+                success_count = sum(1 for pos in episode_max_positions[-100:] if pos >= goal_position)
+                success_rate = success_count / 100.0
+            else:
+                success_count = sum(1 for pos in episode_max_positions if pos >= goal_position)
+                success_rate = success_count / len(episode_max_positions) if episode_max_positions else 0.0
             
-            # Report to Optuna
-            trial.report(mean_eval_return, step=episode)
+            # Calculate score: return + bonus for reaching goal
+            score = ma100_return + 1000.0 * success_rate
+            
+            # Update best score (tracking success_rate as primary metric)
+            if success_rate > best_score:
+                best_score = success_rate
+            
+            # Report to Optuna (using success_rate as primary metric)
+            trial.report(success_rate, step=episode)
             
             # Check for pruning
             if trial.should_prune():
-                print(f"  PRUNED at episode {episode}, eval_return: {mean_eval_return:.2f}")
+                print(f"  PRUNED at episode {episode}, Success Rate: {success_rate:.2%} (MA100: {ma100_return:.2f})")
                 env.close()
                 raise TrialPruned()
             
             # Print progress
-            print(f"  Episode {episode:4d} | Eval Return: {mean_eval_return:7.2f} | Best so far: {best_eval_return:7.2f}")
+            print(f"  Episode {episode:4d} | Success Rate: {success_rate:.2%} (MA100: {ma100_return:7.2f}) | Best: {best_score:.2%}")
     
     env.close()
-    return best_eval_return
+    
+    # Return final success rate (primary metric for Optuna)
+    if len(episode_max_positions_deque) == 100:
+        final_success_count = sum(1 for pos in episode_max_positions_deque if pos >= goal_position)
+        final_success_rate = final_success_count / 100.0
+    elif len(episode_max_positions) >= 100:
+        final_success_count = sum(1 for pos in episode_max_positions[-100:] if pos >= goal_position)
+        final_success_rate = final_success_count / 100.0
+    else:
+        final_success_count = sum(1 for pos in episode_max_positions if pos >= goal_position)
+        final_success_rate = final_success_count / len(episode_max_positions) if episode_max_positions else 0.0
+    
+    return final_success_rate
 
 
 def run_optuna_search(n_trials: int = 30, seed: int = 0, max_episodes: int = 500, eval_interval: int = 50):
@@ -238,7 +283,7 @@ def run_optuna_search(n_trials: int = 30, seed: int = 0, max_episodes: int = 500
     print("Optuna Search Complete")
     print("=" * 60)
     print(f"Best trial: {study.best_trial.number}")
-    print(f"Best value (best eval return): {study.best_value:.2f}")
+    print(f"Best value (success rate): {study.best_value:.2%}")
     print("\nBest hyperparameters:")
     for key, value in study.best_params.items():
         if key == "hidden_sizes_idx":

@@ -1,6 +1,6 @@
 {
   "env_name": "CartPole-v1",
-  "seed": 0,
+  "seed": 42,
   "threshold": 475.0,
   "hyperparameters": {
     "lr_policy": 0.002474,
@@ -15,11 +15,11 @@
     "max_episodes": 500,
     "update_mode": "episode"
   },
-  "runtime_seconds": 139.1323869110056,
-  "episodes_to_converge": 323,
-  "updates_to_converge": 323,
-  "env_steps_to_converge": 71236,
-  "total_time_seconds_to_converge": 139.13034633200004,
-  "final_avg_return": 476.97,
+  "runtime_seconds": 179.94210407000355,
+  "episodes_to_converge": 347,
+  "updates_to_converge": 347,
+  "env_steps_to_converge": 91663,
+  "total_time_seconds_to_converge": 179.9407704510013,
+  "final_avg_return": 478.89,
   "converged": true
 }
