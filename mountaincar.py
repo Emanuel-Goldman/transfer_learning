@@ -121,10 +121,10 @@ def shaped_reward_mcc(env_reward: float,
 
 
 def train_actor_critic(env_name, episodes=300, max_steps=999, gamma=0.99, lr_p=3e-4, lr_v=1e-3, seed=0,
-                       entropy_coef=0.02, window=100, target_success_rate=0.85, target_reward_threshold=90.0,
+                       entropy_coef=0.02, window=100, target_reward_threshold=90.0,
                        min_episodes_before_stop=100, use_reward_shaping=True, k_progress=2.0, k_pos=0.5,
                        k_success_bonus=50.0, normalize_advantages=True, lr_decay=None, lr_decay_steps=40,
-                       skip_plotting=False):
+                       skip_plotting=False, k_pos_decay=0.98, k_pos_decay_steps=10):
     set_seed(seed)
     env = gym.make(env_name)
 
@@ -153,11 +153,15 @@ def train_actor_critic(env_name, episodes=300, max_steps=999, gamma=0.99, lr_p=3
 
     start = time.time()
     print(f"\n=== {env_name} ===", flush=True)
-    print(f"Target success rate: {target_success_rate}", flush=True)
-    print(f"Target reward threshold: {target_reward_threshold}", flush=True)
+    print(f"Target reward threshold: {target_reward_threshold} (avg{window})", flush=True)
     if lr_decay is not None:
         print(f"LR decay: {lr_decay}, steps: {lr_decay_steps}", flush=True)
+    if k_pos_decay is not None:
+        print(f"Position bonus decay: {k_pos_decay}, steps: {k_pos_decay_steps}", flush=True)
     sys.stdout.flush()
+    
+    # Track current k_pos for decay
+    current_k_pos = k_pos
 
     for ep in range(1, episodes + 1):
         obs, _ = env.reset(seed=seed + ep)
@@ -195,7 +199,7 @@ def train_actor_critic(env_name, episodes=300, max_steps=999, gamma=0.99, lr_p=3
                     next_obs=next_obs_np,
                     reached_goal=reached_goal,
                     k_progress=k_progress,
-                    k_pos=k_pos,
+                    k_pos=current_k_pos,  # Use decayed k_pos
                     k_success_bonus=k_success_bonus,
                 )
 
@@ -267,17 +271,14 @@ def train_actor_critic(env_name, episodes=300, max_steps=999, gamma=0.99, lr_p=3
                 flush=True
             )
 
-            # Check stopping conditions
-            stop_success = ep >= min_episodes_before_stop and succ_rate >= target_success_rate
+            # Check stopping conditions (only reward threshold, no success rate threshold)
             stop_reward = ep >= min_episodes_before_stop and avg_env >= target_reward_threshold
             stop_max_episodes = ep >= episodes  # Stop at max episodes
             
-            if stop_success or stop_reward or stop_max_episodes:
-                if stop_success:
-                    print(f"Early stop: success-rate {succ_rate:.2f} >= {target_success_rate} over last {window} episodes.", flush=True)
+            if stop_reward or stop_max_episodes:
                 if stop_reward:
                     print(f"Early stop: average reward {avg_env:.1f} >= {target_reward_threshold} over last {window} episodes.", flush=True)
-                if stop_max_episodes and not stop_success and not stop_reward:
+                if stop_max_episodes and not stop_reward:
                     print(f"Reached maximum episodes: {episodes}", flush=True)
                 break
         else:
@@ -291,6 +292,12 @@ def train_actor_critic(env_name, episodes=300, max_steps=999, gamma=0.99, lr_p=3
                 current_lr_p = opt_p.param_groups[0]['lr']
                 current_lr_v = opt_v.param_groups[0]['lr']
                 print(f"  [LR Decay at episode {ep}] Policy LR: {current_lr_p:.6f}, Value LR: {current_lr_v:.6f}", flush=True)
+        
+        # Position bonus decay (forces agent to reach goal over time)
+        if k_pos_decay is not None:
+            if ep % k_pos_decay_steps == 0 and ep > 0:
+                current_k_pos *= k_pos_decay
+                print(f"  [Position Bonus Decay at episode {ep}] k_pos: {current_k_pos:.4f}", flush=True)
 
     env.close()
 
@@ -345,7 +352,7 @@ def train_actor_critic_optuna(trial, env_name, episodes=200, max_steps=500, seed
         entropy_coef=entropy_coef, use_reward_shaping=True,
         k_progress=k_progress, k_pos=k_pos, k_success_bonus=k_success_bonus,
         normalize_advantages=True,
-        target_success_rate=1.0,  # Disable early stopping
+        # No success rate threshold, only reward threshold
         target_reward_threshold=999.0,  # Disable early stopping
         skip_plotting=True  # Skip plotting to save time
     )
@@ -404,13 +411,14 @@ if __name__ == "__main__":
     parser.add_argument("--k_progress", type=float, default=2.0, help="Progress reward coefficient")
     parser.add_argument("--k_pos", type=float, default=0.5, help="Position reward coefficient")
     parser.add_argument("--k_success_bonus", type=float, default=50.0, help="Success bonus coefficient (reward when goal is reached)")
-    parser.add_argument("--target_success_rate", type=float, default=0.85, help="Target success rate for early stopping (0.0-1.0)")
-    parser.add_argument("--target_reward_threshold", type=float, default=90.0, help="Target average reward threshold for early stopping")
+    parser.add_argument("--target_reward_threshold", type=float, default=90.0, help="Target average reward threshold for early stopping (avg100)")
     parser.add_argument("--min_episodes_before_stop", type=int, default=100, help="Minimum episodes before early stopping")
     parser.add_argument("--no_reward_shaping", action="store_true", help="Disable reward shaping")
     parser.add_argument("--no_normalize_advantages", action="store_true", help="Disable advantage normalization")
     parser.add_argument("--lr_decay", type=float, default=None, help="Learning rate decay factor (e.g., 0.94)")
     parser.add_argument("--lr_decay_steps", type=int, default=40, help="Number of episodes between LR decay updates")
+    parser.add_argument("--k_pos_decay", type=float, default=0.98, help="Position bonus decay factor (e.g., 0.98)")
+    parser.add_argument("--k_pos_decay_steps", type=int, default=10, help="Number of episodes between position bonus decay updates")
     
     args = parser.parse_args()
     
@@ -420,7 +428,6 @@ if __name__ == "__main__":
         train_actor_critic(
             ENV_NAME, args.episodes, args.max_steps, args.gamma, args.lr_p, args.lr_v, args.seed,
             entropy_coef=args.entropy_coef,
-            target_success_rate=args.target_success_rate,
             target_reward_threshold=args.target_reward_threshold,
             min_episodes_before_stop=args.min_episodes_before_stop,
             use_reward_shaping=not args.no_reward_shaping,
@@ -430,4 +437,6 @@ if __name__ == "__main__":
             normalize_advantages=not args.no_normalize_advantages,
             lr_decay=args.lr_decay,
             lr_decay_steps=args.lr_decay_steps,
+            k_pos_decay=args.k_pos_decay,
+            k_pos_decay_steps=args.k_pos_decay_steps,
         )
