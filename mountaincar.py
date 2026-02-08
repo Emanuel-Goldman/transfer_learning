@@ -330,6 +330,17 @@ def train_actor_critic(env_name, episodes=300, max_steps=999, gamma=0.99, lr_p=3
         
         plt.show()
 
+    # Save model
+    os.makedirs("models", exist_ok=True)
+    model_filename = f"models/{env_name}_seed{seed}_model.pth"
+    torch.save({
+        'policy_state_dict': policy.state_dict(),
+        'value_state_dict': value.state_dict(),
+        'env_name': env_name,
+        'seed': seed,
+    }, model_filename)
+    print(f"Model saved to: {model_filename}")
+
     total_time = time.time() - start
     print(f"Finished. Time: {total_time:.1f}s, Episodes: {len(env_returns)}")
     return env_returns, shaped_returns, success_hist

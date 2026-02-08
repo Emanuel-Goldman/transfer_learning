@@ -83,8 +83,8 @@ def train_actor_critic_optuna(trial, env_name, episodes=1000, max_steps=500, see
     set_seed(seed)
     env = gym.make(env_name)
 
-    policy = PolicyNet(hidden=hidden).to(DEVICE)
-    value = ValueNet(hidden=hidden).to(DEVICE)
+    policy = PolicyNet(hidden_sizes=[64, hidden]).to(DEVICE)
+    value = ValueNet(hidden_sizes=[64, hidden]).to(DEVICE)
 
     opt_p = optim.Adam(policy.parameters(), lr=lr_p)
     opt_v = optim.Adam(value.parameters(), lr=lr_v)
@@ -189,9 +189,9 @@ def select_action(policy, state_padded, env_name):
     raise ValueError("env not supported")
 
 
-def train_actor_critic(env_name, episodes=1000, max_steps=500, gamma=0.99, lr_p=5e-4, lr_v=1e-3, seed=0,
-                       hidden_sizes=[128], entropy_coef=0.01, lr_decay=None, lr_decay_steps=40,
-                       normalize_advantages=False, update_mode="step"):
+def train_actor_critic(env_name, episodes=1000, max_steps=500, gamma=0.9838, lr_p=0.001474, lr_v=0.008751, seed=0,
+                       hidden_sizes=[64, 128], entropy_coef=0.01, lr_decay=0.94, lr_decay_steps=40,
+                       normalize_advantages=True, update_mode="episode"):
     set_seed(seed)
     env = gym.make(env_name)
 
@@ -391,6 +391,18 @@ def train_actor_critic(env_name, episodes=1000, max_steps=500, gamma=0.99, lr_p=
     print(f"Plot saved to: {plot_filename}")
     
     plt.show()
+
+    # Save model
+    os.makedirs("models", exist_ok=True)
+    model_filename = f"models/{env_name}_seed{seed}_model.pth"
+    torch.save({
+        'policy_state_dict': policy.state_dict(),
+        'value_state_dict': value.state_dict(),
+        'env_name': env_name,
+        'seed': seed,
+        'hidden_sizes': hidden_sizes,
+    }, model_filename)
+    print(f"Model saved to: {model_filename}")
 
     print(f"Finished {env_name}. Time: {time.time() - start:.1f}s, Episodes: {episodes}")
     return rewards

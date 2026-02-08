@@ -41,26 +41,32 @@ def pad_state(s):
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, hidden=128):
+    def __init__(self, hidden_sizes=[64, 128]):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(PADDED_STATE_DIM, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, POLICY_OUT_DIM),
-        )
+        layers = []
+        prev_size = PADDED_STATE_DIM
+        for hidden_size in hidden_sizes:
+            layers.append(nn.Linear(prev_size, hidden_size))
+            layers.append(nn.ReLU())
+            prev_size = hidden_size
+        layers.append(nn.Linear(prev_size, POLICY_OUT_DIM))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.net(x)
 
 
 class ValueNet(nn.Module):
-    def __init__(self, hidden=128):
+    def __init__(self, hidden_sizes=[64, 128]):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(PADDED_STATE_DIM, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, 1),
-        )
+        layers = []
+        prev_size = PADDED_STATE_DIM
+        for hidden_size in hidden_sizes:
+            layers.append(nn.Linear(prev_size, hidden_size))
+            layers.append(nn.ReLU())
+            prev_size = hidden_size
+        layers.append(nn.Linear(prev_size, 1))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.net(x).squeeze(-1)
@@ -77,8 +83,8 @@ def train_actor_critic_optuna(trial, env_name, episodes=1500, max_steps=500, see
     set_seed(seed)
     env = gym.make(env_name)
 
-    policy = PolicyNet(hidden=hidden).to(DEVICE)
-    value = ValueNet(hidden=hidden).to(DEVICE)
+    policy = PolicyNet(hidden_sizes=[64, hidden]).to(DEVICE)
+    value = ValueNet(hidden_sizes=[64, hidden]).to(DEVICE)
 
     opt_p = optim.Adam(policy.parameters(), lr=lr_p)
     opt_v = optim.Adam(value.parameters(), lr=lr_v)
@@ -187,8 +193,8 @@ def train_actor_critic(env_name, episodes=1500, max_steps=500, gamma=0.99, lr_p=
     set_seed(seed)
     env = gym.make(env_name)
 
-    policy = PolicyNet(hidden=128).to(DEVICE)
-    value = ValueNet(hidden=128).to(DEVICE)
+    policy = PolicyNet(hidden_sizes=[64, 128]).to(DEVICE)
+    value = ValueNet(hidden_sizes=[64, 128]).to(DEVICE)
 
     opt_p = optim.Adam(policy.parameters(), lr=lr_p)
     opt_v = optim.Adam(value.parameters(), lr=lr_v)
@@ -292,6 +298,17 @@ def train_actor_critic(env_name, episodes=1500, max_steps=500, gamma=0.99, lr_p=
     print(f"Plot saved to: {plot_filename}")
     
     plt.show()
+
+    # Save model
+    os.makedirs("models", exist_ok=True)
+    model_filename = f"models/{env_name}_seed{seed}_model.pth"
+    torch.save({
+        'policy_state_dict': policy.state_dict(),
+        'value_state_dict': value.state_dict(),
+        'env_name': env_name,
+        'seed': seed,
+    }, model_filename)
+    print(f"Model saved to: {model_filename}")
 
     print(f"Finished {env_name}. Time: {time.time() - start:.1f}s, Episodes: {episodes}")
     return rewards
