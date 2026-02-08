@@ -45,7 +45,7 @@ def reinitialize_output_layer(network):
                 break
 
 
-def train_transfer(episodes=300, max_steps=999, gamma=0.99, lr_p=3e-4, lr_v=1e-3, seed=0,
+def train_transfer(episodes=200, max_steps=999, gamma=0.99, lr_p=3e-4, lr_v=1e-3, seed=0,
                    entropy_coef=0.02, window=100, target_reward_threshold=90.0,
                    min_episodes_before_stop=100, use_reward_shaping=True, k_progress=2.0, k_pos=0.5,
                    k_success_bonus=50.0, normalize_advantages=True, lr_decay=None, lr_decay_steps=40,
@@ -358,7 +358,7 @@ def train_transfer(episodes=300, max_steps=999, gamma=0.99, lr_p=3e-4, lr_v=1e-3
 
 if __name__ == "__main__":
     train_transfer(
-        episodes=300,
+        episodes=200,
         max_steps=999,
         gamma=0.99,
         lr_p=3e-4,
